@@ -12,7 +12,7 @@ based on applicant financial and demographic data such as income, credit history
 
 ## Project Structure
 - `data/` — raw and processed datasets
-- `notebooks/` — analysis pipeline (see order below)
+- `notebooks/` — analysis pipeline 
 - `src/` — reusable helper functions
 - `models/` — trained models
 - `app/` — Streamlit app
