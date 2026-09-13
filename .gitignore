@@ -1,2 +1,5 @@
 .venv/
 *.code-workspace
+*.gitattributes
+venv/
+
