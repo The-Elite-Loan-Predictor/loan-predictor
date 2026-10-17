@@ -8,3 +8,9 @@ joblib
 jupyter
 notebook
 ipykernel
+imbalanced-learn
+xgboost
+lightgbm
+xgboost
+
+
