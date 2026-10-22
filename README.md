@@ -2,7 +2,7 @@
 
 A machine learning project that explores loan application data and trains classifiers to predict loan approval from applicant income, credit history, loan details, and demographic information.
 
-The current workflow runs in Jupyter notebooks: data exploration, cleaning and feature engineering, then model training and evaluation. It compares **Logistic Regression**, **Random Forest**, and **Decision Tree** classifiers. The Streamlit application is planned; `app/app.py` is currently an empty placeholder.
+The current workflow runs in Jupyter notebooks: data exploration, cleaning and feature engineering, then model training and evaluation. It compares **Logistic Regression**, **Random Forest**, **Decision Tree**, **XGBoost**, **LightGBM**, **SVM**, **KNN**, **Gaussian Naive Bayes**, and **Multinomial Naive Bayes** classifiers. The trained models are exported to `models/` and served by the Streamlit application in `app/app.py`.
 
 ## Setup
 
@@ -38,10 +38,9 @@ Install Python with `pip`, clone or download this repository, and open a termina
 
    ```shell
    python -m pip install -r requirements.txt
-   python -m pip install imbalanced-learn
    ```
 
-   The modelling notebook imports `RandomOverSampler` from `imblearn`. Its package, `imbalanced-learn`, is not yet listed in `requirements.txt`, so the second command is required.
+   `imbalanced-learn`, `xgboost`, `lightgbm` and `pytest` are listed in `requirements.txt`.
 
 ## Run the notebooks
 
@@ -113,27 +112,93 @@ Each model uses `random_state=42`. Evaluation prints training and test accuracy,
 
 Imputation and categorical encoding are fitted on the full dataset in notebook 02, before the train/test split in notebook 03. Scaling, feature selection, and oversampling use only training data, but the earlier preprocessing can still leak information from the test set. Moving all fitted preprocessing into a training pipeline is a remaining improvement.
 
-Trained models and preprocessing objects remain in notebook memory; model export, an interactive prediction app, and automated tests have not yet been implemented. Dependency versions are also unpinned, so results may vary between environments.
+Dependency versions are also unpinned, so results may vary between environments.
+
+## Train and export the models
+
+`src/train_models.py` reproduces the notebook 03 pipeline outside of Jupyter and
+writes each model to `models/` with the preprocessing it needs, so the app never
+has to retrain anything.
+
+```shell
+python src/train_models.py
+```
+
+It drops `loan_id`, `loan_status`, `total_income` and `balance_income`, makes the
+same stratified 80/20 split, fits the `MinMaxScaler` and the
+`SelectKBest(f_classif, k=10)` selector on the training set only, trains the
+classifiers, and saves each one as a bundle in `models/pipeline/`:
+
+| Key | Contents |
+| --- | --- |
+| `model` | The fitted classifier. |
+| `scaler` | The fitted `MinMaxScaler`. |
+| `selector` | The fitted `SelectKBest`. |
+| `feature_columns` | The exact column order the model expects. |
+| `numeric_columns` | The columns the scaler transforms. |
+| `selected_features` | The features the selector kept. |
+
+The bundles live in `models/pipeline/` rather than `models/` because notebook 03
+also exports bare estimators into `models/`. Keeping them apart stops the two
+from overwriting each other.
+
+| Model | Test accuracy |
+| --- | --- |
+| Support Vector Machine | 85.37% |
+| Logistic Regression | 85.37% |
+| Gaussian Naive Bayes | 84.55% |
+| Random Forest | 82.93% |
+| K-Nearest Neighbors | 80.49% |
+| Decision Tree | 73.98% |
+| Multinomial Naive Bayes | 69.11% |
+
+## Run the Streamlit app
+
+```shell
+streamlit run app/app.py
+```
+
+The app loads the bundles from `models/pipeline/`, collects the applicant
+details, applies the stored scaler and feature selector, and shows whether the
+application is approved or rejected. The classifier can be switched in the
+sidebar. A missing model file, an invalid value, or a failed prediction is
+reported in the interface instead of raising an unhandled error.
+
+## Tests
+
+```shell
+python -m pytest tests/ -v
+```
+
+`tests/test_model_integration.py` checks that every exported model loads without
+retraining, that the stored preprocessing matches what the notebook produces,
+that a known row gets the same prediction through the app and the notebook, and
+that invalid input and missing model files are handled gracefully.
 
 ## Project structure
 
 ```text
 loan-predictor/
 |-- app/
-|   `-- app.py                               # Placeholder for the Streamlit app
+|   `-- app.py                               # Streamlit prediction app
 |-- data/
 |   |-- raw_data/loan_data_raw.csv
 |   `-- cleaned_data/cleaned_loan_dataset.csv
-|-- models/                                 # Reserved for saved models
+|-- models/                                 # Exported model bundles (.joblib)
+|   `-- pipeline/                           # Bundles: model + scaler + selector
 |-- notebooks/
 |   |-- 01_explore_data_analysis.ipynb
 |   |-- 02_data_cleaning_and_preprocessing.ipynb
 |   `-- 03_modelling.ipynb
 |-- outputs/reports/Data Exploration/        # EDA report and charts
-|-- src/                                    # Placeholder for reusable code
-|-- tests/                                  # Placeholder for automated tests
+|-- src/
+|   |-- __init__.py
+|   |-- train_models.py                      # Train and export the models
+|   `-- model_persistence.py                 # Load models and predict
+|-- tests/
+|   `-- test_model_integration.py            # Model and app integration tests
 |-- requirements.txt
 `-- README.md
 ```
 
-The analysis uses pandas, NumPy, Matplotlib, Seaborn, scikit-learn, imbalanced-learn, and Jupyter. Streamlit and joblib are included in the dependencies for future app and model-persistence work.
+The analysis uses pandas, NumPy, Matplotlib, Seaborn, scikit-learn, imbalanced-learn, xgboost, lightgbm, and Jupyter. Streamlit, joblib and pytest are used by the app and the test suite.

@@ -11,6 +11,6 @@ ipykernel
 imbalanced-learn
 xgboost
 lightgbm
-xgboost
+pytest
 
 
