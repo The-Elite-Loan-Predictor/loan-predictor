@@ -1,12 +1,7 @@
-"""Form fields and scoring - everything about the model (no Streamlit, no dataset).
-
-The saved model is a scikit-learn Pipeline (preprocessing + estimator) trained on the raw columns, so the app
-just feeds it raw values. Form fields are built from the pipeline's `feature_names_in_` plus optional
-overrides in `config.FIELD_SPECS`."""
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import joblib
@@ -15,13 +10,12 @@ import pandas as pd
 
 import config
 
+
 # ======================================================================
-# FORM FIELDS (0/1 -> Yes/No, dependents_* -> one field)
+# 1. FIELD SETTINGS
 # ======================================================================
 
-_BINARY_ALIASES = {"0": "No", "1": "Yes", "false": "No", "true": "Yes", "n": "No", "y": "Yes"}
-
-# Sensible defaults for common loan columns. Override or extend in config.FIELD_SPECS, e.g.
+# Sensible wording for common loan columns. Override or extend in config.FIELD_SPECS, e.g.
 #   FIELD_SPECS = {"loan_amount": {"type": "number", "min": 0, "max": 700, "default": 130, "step": 1},
 #                  "property_area": {"type": "choice", "options": ["Urban", "Rural"], "default": "Urban"}}
 _DEFAULT_SPECS: dict[str, dict] = {
@@ -36,12 +30,14 @@ _DEFAULT_SPECS: dict[str, dict] = {
                            "help": "Good = the applicant has repaid past debts as agreed."},
     "education_not_graduate": {"label": "Education", "type": "binary", "on": "Not a graduate",
                                "off": "Graduate", "default": "Graduate"},
+
     # same, for datasets where the columns are not one-hot encoded
     "gender": {"type": "binary"},
     "married": {"type": "binary"},
     "education": {"type": "binary"},
     "self_employed": {"type": "binary", "default": "No"},
     "credit_history": {"type": "binary"},
+
     # numbers
     "loan_amount": {"label": "Loan amount", "help": "How much the applicant wants to borrow."},
     "loan_amount_term": {"label": "Loan term (months)", "type": "number", "min": 12, "max": 480,
@@ -52,27 +48,14 @@ _DEFAULT_SPECS: dict[str, dict] = {
     "coapplicant_income": {"label": "Co-applicant's monthly income",
                            "help": "Income of a second person on the loan. Enter 0 if there is none."},
 }
+
 _FALLBACK_NUMBER = {"type": "number", "min": 0, "max": 10_000_000, "default": 0, "step": 1}
 _NUMERIC_HINTS = ("amount", "income", "term", "installment", "age", "year", "ratio", "score", "balance", "count")
 
 
-def _guess_spec(col: str) -> dict:
-    """Columns like gender_male, married_yes or credit_history_1.0 are 0/1 dummies -> Yes/No dropdowns."""
-    low = col.lower()
-    if "_" not in low or any(h in low for h in _NUMERIC_HINTS):
-        return _FALLBACK_NUMBER
-    return {"type": "binary", "default": "Yes" if low.startswith("credit_history") else "No"}
-
-
-def _as_text(raw) -> str | None:
-    """Normalise a cell (str / int / float / NaN) to lower-case text; None when empty."""
-    if raw is None or (not isinstance(raw, str) and pd.isna(raw)):
-        return None
-    if isinstance(raw, (int, float, np.number)) and float(raw).is_integer():
-        return str(int(raw))
-    text = str(raw).strip().lower()
-    return text or None
-
+# ======================================================================
+# 2. FIELD TYPES
+# ======================================================================
 
 @dataclass(frozen=True)
 class ChoiceField:
@@ -81,7 +64,6 @@ class ChoiceField:
     label: str
     options: dict[str, dict[str, float]]
     default: str
-    aliases: dict[str, str] = field(default_factory=dict)
     help: str = ""
 
     @property
@@ -90,16 +72,6 @@ class ChoiceField:
 
     def encode(self, value: str) -> dict[str, float]:
         return dict(self.options[value])
-
-    def parse(self, raw) -> str | None:
-        """Match a CSV / editor cell to one of the option labels (case-insensitive)."""
-        text = _as_text(raw)
-        if text is None:
-            return None
-        for label in self.options:
-            if label.lower() == text:
-                return label
-        return self.aliases.get(text)
 
 
 @dataclass(frozen=True)
@@ -116,12 +88,6 @@ class NumberField:
     def encode(self, value: float) -> dict[str, float]:
         return {self.key: float(value)}
 
-    def parse(self, raw) -> float | None:
-        if raw is None:
-            return None
-        value = pd.to_numeric(raw, errors="coerce")
-        return None if pd.isna(value) else float(value)
-
 
 Field = ChoiceField | NumberField
 
@@ -134,8 +100,28 @@ def encode_values(fields: list[Field], values: dict) -> dict[str, float]:
     return row
 
 
+# ======================================================================
+# 3. BUILDING THE FORM
+# ======================================================================
+
 def _pretty(col: str) -> str:
     return config.FIELD_LABELS.get(col, col.replace("_", " ").capitalize())
+
+
+def _guess_spec(col: str) -> dict:
+    """Columns like gender_male, married_yes or credit_history_1.0 are 0/1 dummies -> Yes/No dropdowns."""
+    low = col.lower()
+    if "_" not in low or any(h in low for h in _NUMERIC_HINTS):
+        return _FALLBACK_NUMBER
+    return {"type": "binary", "default": "Yes" if low.startswith("credit_history") else "No"}
+
+
+def _merged_specs() -> dict[str, dict]:
+    """Built-in specs, with config.FIELD_SPECS layered on top key by key."""
+    specs = {k: dict(v) for k, v in _DEFAULT_SPECS.items()}
+    for k, v in getattr(config, "FIELD_SPECS", {}).items():
+        specs[k] = {**specs.get(k, {}), **v}
+    return specs
 
 
 def _label_order(label: str) -> int:
@@ -153,6 +139,7 @@ def _dep_label(raw: str) -> str:
 
 
 def _dependents_field(cols: list[str]) -> ChoiceField:
+    """Several one-hot columns (dependents_1, dependents_2, ...) become one dropdown."""
     prefix_len = len(config.DEPENDENTS_PREFIX) + 1
     zeros = {c: 0 for c in cols}
     options: dict[str, dict[str, float]] = {_dep_label(c[prefix_len:]): {**zeros, c: 1} for c in cols}
@@ -170,36 +157,29 @@ def _field_from_spec(col: str, spec: dict) -> Field:
     label = config.FIELD_LABELS.get(col) or spec.get("label") or _pretty(col)
     help_text = spec.get("help", "")
     kind = spec.get("type", "number")
+
     if kind == "binary":
-        if "on" in spec and "off" in spec:                       # custom wording, e.g. Male / Female
+        if "on" in spec and "off" in spec:                      
             on, off = spec["on"], spec["off"]
             options = {on: {col: 1}, off: {col: 0}}
             default = spec.get("default", on)
-            aliases = {"1": on, "0": off, "true": on, "false": off, "yes": on, "no": off, "y": on, "n": off}
-            return ChoiceField(col, label, options, default if default in options else on,
-                               aliases=aliases, help=help_text)
+            return ChoiceField(col, label, options, default if default in options else on, help=help_text)
         options = {name: {col: code} for name, code in config.YES_NO.items()}
         default = spec.get("default", "Yes")
         return ChoiceField(col, label, options, default if default in options else next(iter(options)),
-                           aliases=dict(_BINARY_ALIASES), help=help_text)
+                           help=help_text)
+
     if kind == "choice":
         raw_options = spec["options"]
         options = {str(v): {col: v} for v in raw_options}
         default = str(spec.get("default", raw_options[0]))
         return ChoiceField(col, label, options, default if default in options else next(iter(options)),
                            help=help_text)
+
     return NumberField(col, label,
                        min=float(spec.get("min", 0)), max=float(spec.get("max", 10_000_000)),
                        default=float(spec.get("default", 0)), step=float(spec.get("step", 1)),
                        help=help_text)
-
-
-def _merged_specs() -> dict[str, dict]:
-    """Built-in specs, with config.FIELD_SPECS layered on top key by key."""
-    specs = {k: dict(v) for k, v in _DEFAULT_SPECS.items()}
-    for k, v in getattr(config, "FIELD_SPECS", {}).items():
-        specs[k] = {**specs.get(k, {}), **v}
-    return specs
 
 
 def build_fields(columns: list[str]) -> list[Field]:
@@ -221,7 +201,7 @@ def build_fields(columns: list[str]) -> list[Field]:
 
 
 # ======================================================================
-# SCORING
+# 4. INSTALLMENT
 # ======================================================================
 
 @dataclass
@@ -247,6 +227,10 @@ class InstallmentCalculator:
             df[config.INSTALLMENT_COL] = (df["loan_amount"].astype(float) / term * self.factor).fillna(0.0)
         return df
 
+
+# ======================================================================
+# 5. LOAN PREDICTOR
+# ======================================================================
 
 class LoanPredictor:
     """A saved scikit-learn Pipeline plus the raw column list it expects."""
@@ -307,7 +291,7 @@ class LoanPredictor:
 
 
 # ======================================================================
-# LOADING
+# 6. LOADING
 # ======================================================================
 
 @dataclass
@@ -340,8 +324,13 @@ def load_artifacts(model_path: Path) -> Artifacts:
     )
 
 
+# ======================================================================
+# 7. HELPERS
+# ======================================================================
+
 def summarize_results(res: pd.DataFrame | None, threshold: float,
                       band: float = config.BORDERLINE_BAND, max_rows: int = 25) -> dict | None:
+    """Totals for a table with 'Applicant' and 'Score' columns (not used by the app at the moment)."""
     if res is None or res.empty:
         return None
     n = len(res)
