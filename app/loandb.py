@@ -11,7 +11,7 @@ import pandas as pd
 
 import config
 
-DB_PATH = Path(getattr(config, "DB_PATH", Path(__file__).with_name("loan_applications.db")))
+DB_PATH = Path(getattr(config, "DB_PATH", Path(__file__).with_name("database/loan_applications.db")))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS applications (
