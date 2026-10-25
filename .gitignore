@@ -1,4 +1,5 @@
 .venv/
 *.code-workspace
 *.gitattributes
-venv/
+database/loan_applications.db
+.streamlit/secrets.toml
