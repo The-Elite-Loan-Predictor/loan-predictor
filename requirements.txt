@@ -12,5 +12,6 @@ imbalanced-learn
 xgboost
 lightgbm
 pytest
-
+openrouter
+openai
 
