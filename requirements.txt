@@ -11,7 +11,7 @@ ipykernel
 imbalanced-learn
 xgboost
 lightgbm
-pytest
+plotly
 openrouter
 openai
 
