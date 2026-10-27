@@ -8,3 +8,10 @@ joblib
 jupyter
 notebook
 ipykernel
+imbalanced-learn
+xgboost
+lightgbm
+plotly
+openrouter
+openai
+
