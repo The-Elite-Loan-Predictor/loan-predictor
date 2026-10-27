@@ -4,3 +4,4 @@
 venv/
 __pycache__/
 .streamlit/
+app/loan_applications.db
