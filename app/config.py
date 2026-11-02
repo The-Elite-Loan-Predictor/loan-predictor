@@ -1,4 +1,3 @@
-"""Configurations: every tunable value lives here."""
 from __future__ import annotations
 
 import os
@@ -21,24 +20,27 @@ MODEL_NAME = ""
 # --- Backend table of assessed applications ---------------------------------------------
 DB_PATH = Path(os.getenv("DB_PATH", PROJECT_ROOT / "app" / "loan_applications.db"))
 
-
+# --- Admin access -----------------------------------------------------------------------
+# Set these as environment variables in production. The defaults are for local demos only.
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 # --- Model inputs -----------------------------------------------------------------------
-INSTALLMENT_COL = "estimated_monthly_installment"   
+INSTALLMENT_COL = "estimated_monthly_installment"
 
 INSTALLMENT_FACTOR = 1.0
-POSITIVE_CLASS = 1                   
+POSITIVE_CLASS = 1
 
 # --- Decision policy --------------------------------------------------------------------
-DEFAULT_THRESHOLD = 0.50                
-BORDERLINE_BAND = 0.10                
+DEFAULT_THRESHOLD = 0.50
+BORDERLINE_BAND = 0.10
 
 # --- Form presentation ------------------------------------------------------------------
-YES_NO = {"No": 0, "Yes": 1}           
-DEPENDENTS_PREFIX = "dependents"       
+YES_NO = {"No": 0, "Yes": 1}
+DEPENDENTS_PREFIX = "dependents"
 DEPENDENTS_LABEL = "Number of dependents"
-DEPENDENTS_BASELINE = "0"           
-FIELD_LABELS: dict[str, str] = {}      
+DEPENDENTS_BASELINE = "0"
+FIELD_LABELS: dict[str, str] = {}
 
 
 FIELD_SPECS: dict[str, dict] = {
@@ -51,4 +53,4 @@ FIELD_SPECS: dict[str, dict] = {
 # --- AI assistant (OpenRouter) ----------------------------------------------------------
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 ASSISTANT_MAX_TOKENS = 700
-ASSISTANT_HISTORY = 12               
+ASSISTANT_HISTORY = 12
