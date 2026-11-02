@@ -191,12 +191,6 @@ loan-predictor/
 |   |-- 02_data_cleaning_and_preprocessing.ipynb
 |   `-- 03_modelling.ipynb
 |-- outputs/reports/Data Exploration/        # EDA report and charts
-|-- src/
-|   |-- __init__.py
-|   |-- train_models.py                      # Train and export the models
-|   `-- model_persistence.py                 # Load models and predict
-|-- tests/
-|   `-- test_model_integration.py            # Model and app integration tests
 |-- requirements.txt
 `-- README.md
 ```
