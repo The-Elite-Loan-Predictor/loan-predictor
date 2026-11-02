@@ -195,4 +195,4 @@ loan-predictor/
 `-- README.md
 ```
 
-The analysis uses pandas, NumPy, Matplotlib, Seaborn, scikit-learn, imbalanced-learn, xgboost, lightgbm, and Jupyter. Streamlit, joblib and pytest are used by the app and the test suite.
+The analysis uses pandas, NumPy, Matplotlib, Seaborn, scikit-learn, imbalanced-learn, xgboost, lightgbm, and Jupyter. Streamlit, joblib.
