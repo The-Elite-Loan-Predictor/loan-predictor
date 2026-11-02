@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import html
 import json
 from pathlib import Path
@@ -124,6 +125,8 @@ section[data-testid="stSidebar"] .stRadio label {font-size: 1.02rem;}
 .st-key-clear_chat button p::before,
 .st-key-save_reviews button p::before,
 .st-key-delete_applicants button p::before,
+.st-key-admin_login_btn button p::before,
+.st-key-admin_logout button p::before,
 .st-key-nav_assess button p::before,
 .st-key-nav_review button p::before,
 .st-key-nav_reporting button p::before,
@@ -137,6 +140,8 @@ section[data-testid="stSidebar"] .stRadio label {font-size: 1.02rem;}
 .st-key-clear_chat button p::before {content: "\f1f8";}
 .st-key-save_reviews button p::before {content: "\f0c7";}
 .st-key-delete_applicants button p::before {content: "\f1f8";}
+.st-key-admin_login_btn button p::before {content: "\f2f6";}
+.st-key-admin_logout button p::before {content: "\f2f5";}
 .st-key-nav_assess button p::before {content: "\f573";}
 .st-key-nav_review button p::before {content: "\f46c";}
 .st-key-nav_reporting button p::before {content: "\f200";}
@@ -176,7 +181,7 @@ def inject() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
-# page -> (font family, Google Fonts query). Pages not listed keep the default font.
+# page -> (font family, Google Fonts query).
 _PAGE_FONTS = {
     "Loan review": ("IBM Plex Sans", "IBM+Plex+Sans:wght@400;500;600;700"),
     "Reporting": ("Poppins", "Poppins:wght@400;500;600;700"),
@@ -309,6 +314,48 @@ def result_card(decision: str, borderline: bool) -> None:
 
 
 # ======================================================================
+# ADMIN LOGIN (shared by Loan review and Reporting)
+# ======================================================================
+
+def _check_credentials(username: str, password: str) -> bool:
+    """Constant-time comparison. Falls back to demo defaults if config.py lacks them."""
+    expected_user = str(getattr(config, "ADMIN_USERNAME", "admin")).strip()
+    expected_pass = str(getattr(config, "ADMIN_PASSWORD", "admin123") or "").strip()
+
+    if not expected_pass:
+        return False
+
+    user_ok = hmac.compare_digest(username.strip().casefold().encode(), expected_user.casefold().encode())
+    pass_ok = hmac.compare_digest(password.strip().encode(), expected_pass.encode())
+    return user_ok and pass_ok
+
+
+def _admin_logout() -> None:
+    st.session_state["admin_ok"] = False
+
+
+def _admin_ok() -> bool:
+    """Admin login gate. Logging in once unlocks every admin page for the session."""
+    if st.session_state.get("admin_ok"):
+        return True
+
+    st.info("This page is restricted to administrators. Please log in.")
+
+    with st.form("admin_login"), st.container(border=True):
+        username = st.text_input("Username", key="admin_user")
+        password = st.text_input("Password", type="password", key="admin_pass")
+        submitted = st.form_submit_button("Log in", type="primary", key="admin_login_btn")
+
+    if submitted:
+        if _check_credentials(username, password):
+            st.session_state["admin_ok"] = True
+            st.rerun()
+        st.error("Incorrect username or password.")
+
+    return False
+
+
+# ======================================================================
 # SIDEBAR
 # ======================================================================
 
@@ -319,6 +366,10 @@ _NAV_KEYS = {
     "Reporting": "nav_reporting",
     "AI assistant": "nav_assistant",
 }
+
+
+# Pages that show the approval threshold slider
+_THRESHOLD_PAGES = ("Loan review", "Reporting")
 
 
 def _go(name: str) -> None:
@@ -357,17 +408,29 @@ def render_sidebar(art: Artifacts, pages: list[str]) -> tuple[str, float]:
             args=(name,),
         )
 
+    if st.session_state.get("admin_ok"):
+        sb.button(
+            "Log out (admin)",
+            key="admin_logout",
+            use_container_width=True,
+            on_click=_admin_logout,
+        )
+
     sb.divider()
 
-    threshold = sb.slider(
-        "Approval threshold", 0.05, 0.95, config.DEFAULT_THRESHOLD, 0.05,
-        help=(
-            "Scores at or above this are recommended for approval. "
-            "Raise it to be stricter, lower it to be more lenient. "
-            "It applies to new assessments; saved ones keep the threshold used at the time."
-        ),
-    )
-    sb.divider()
+    threshold = float(st.session_state.get("threshold_value", config.DEFAULT_THRESHOLD))
+
+    if page in _THRESHOLD_PAGES and st.session_state.get("admin_ok"):
+        threshold = sb.slider(
+            "Approval threshold", 0.05, 0.95, threshold, 0.05,
+            help=(
+                "Scores at or above this are recommended for approval. "
+                "Raise it to be stricter, lower it to be more lenient. "
+                "It applies to new assessments; saved ones keep the threshold used at the time."
+            ),
+        )
+        st.session_state["threshold_value"] = threshold
+        sb.divider()
 
     sb.caption(
         f"<i class='fa-solid fa-cube'></i>&nbsp; "
@@ -607,24 +670,6 @@ def _text(value) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
-def _admin_ok() -> bool:
-    """Optional password gate: set ADMIN_PASSWORD in config.py to enable it."""
-    password = getattr(config, "ADMIN_PASSWORD", None)
-
-    if not password or st.session_state.get("admin_ok"):
-        return True
-
-    entered = st.text_input("Admin password", type="password")
-
-    if entered:
-        if entered == password:
-            st.session_state["admin_ok"] = True
-            st.rerun()
-        st.error("Incorrect password.")
-
-    return False
-
-
 def _do_delete(where: str, labels: dict) -> None:
     """Button callback: delete the selected applicants and reset the controls."""
     picked = st.session_state.get(f"del_pick_{where}", [])
@@ -636,11 +681,11 @@ def _do_delete(where: str, labels: dict) -> None:
 
 
 def _delete_panel(df: pd.DataFrame, where: str) -> None:
-    """Pick applicants and permanently delete them (asks for confirmation first)."""
-    with st.expander("Delete applicants"):
-        if not _admin_ok():
-            return
+    """Pick applicants and permanently delete them (asks for confirmation first).
 
+    Only called from admin-gated pages, so no extra login check is needed here.
+    """
+    with st.expander("Delete applicants"):
         labels = {
             f"{name} ({id_no or 'no ID'})": int(row_id)
             for name, id_no, row_id in zip(df["applicant"], df["id_number"], df["id"])
@@ -765,7 +810,7 @@ def page_review(art: Artifacts, threshold: float) -> None:
 
 
 # ======================================================================
-# PAGE 3 - REPORTING (approvals and declines)
+# PAGE 3 - REPORTING (admins)
 # ======================================================================
 
 def _bar(labels: list[str], values: list[int], colors: list[str], title: str) -> go.Figure:
@@ -790,6 +835,9 @@ def _bar(labels: list[str], values: list[int], colors: list[str], title: str) ->
 
 def page_reporting(art: Artifacts, threshold: float) -> None:
     heading("chart-line", "Reporting")
+
+    if not _admin_ok():
+        return
 
     _delete_notice()
 
